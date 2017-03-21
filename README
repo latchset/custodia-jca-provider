@@ -1,0 +1,161 @@
+======================================================
+Custodia CLI Java KeyStore provider (Proof Of Concept)
+
+Custodia is a daemon which provides API to accessing and storing
+secrets to various backends. It can be accessed over HTTPS (TCP) and
+over Unix sockets. It also comes with custodia-cli client tool which
+exposes operations like get or set on command line. The server itself
+can be accessed over network and the actual secret storage can be
+on yet another machine.
+
+Custodia (currently) does not provide PKCS11 interface.
+
+Java KeyStore is Java SE API for accessing and storing certificates
+and private keys. While primarily targeting key formats (JKS, PKCS12),
+the Java Cryptography Architecture describes ways for implementing
+additional providers, to support other mechanisms, like HSMs.
+
+Custodia and its ability to access secrets remotely can serve well in
+situations when Java applications need to be independent from the local
+file keystores. In containerized and cloud deployments, it can be
+easier, more flexible, and more secure to let the application reach out
+to remote keystore rather than bind-mount keystores to nodes and
+containers where the application might be running.
+
+Java KeyStore provider to work with Custodia via its CLI client was
+therefore developed.
+
+-------------
+Configuration
+
+The provider uses Bouncy Castle cryptographic implementation for PEM
+parsing and private key encryption and decryption. So Bouncy Castle
+package needs to be installed and in classpath. On Fedora 25, installing
+bouncycastle-1.54-1.fc25.noarch and symlinking
+
+    ln -s /usr/share/java/bc{prov,pkix}.jar /etc/alternatives/jre/lib/ext/
+
+made it available both for compilation and runtime.
+
+The Custodia CLI provider needs to be in classpath as well, putting the
+jar file into /etc/alternatives/jre/lib/ext/ works on Fedora 25.
+
+The provider needs to be configured in java.security file. On Fedora 25,
+adding
+
+    security.provider.10=io.github.latchset.custodia.provider.Custodia
+
+to /etc/alternatives/jre/lib/security/java.security enables it.
+
+Custodia partitions the namespace into so called containers and with the
+above configuration, we haven't defined one for the provider. We
+therefore need to specify it as part of the alias name:
+
+    $ keytool -list -storetype custodia-cli -keystore NONE -storepass thepassword -alias wildfly/server-ssl
+    wildfly/server-ssl, null, PrivateKeyEntry,
+    Certificate fingerprint (SHA1): 51:6A:38:B7:5F:F3:C9:04:DF:A3:32:48:EC:A1:E0:FA:8A:7E:8F:01
+
+With this configuration, getting the list of aliases does not work because
+Custodia does not know which container to get the list from:
+
+    $ keytool -list -storetype custodia-cli -keystore NONE -storepass thepassword
+
+    Keystore type: CUSTODIA-CLI
+    Keystore provider: Custodia provider
+
+    Your keystore contains 0 entries
+
+To support deployments where getting list of aliases has to be supported,
+like WildFly, the provider can be enabled with parameter which specifies
+configuration file which in turn can specify the default container to use.
+The name of the KeyStore type then has the name of the container appended.
+
+For example, with /etc/wildfly/standalone/custodia-wildfly.config containing
+
+    container: wildfly
+
+and the provider enabled with
+
+    security.provider.10=io.github.latchset.custodia.provider.Custodia /etc/wildfly/standalone/custodia-wildfly.config
+
+the list of aliases can now be obtained:
+
+    $ keytool -list -storetype custodia-cli-wildfly -keystore NONE -storepass thepassword
+
+    Keystore type: CUSTODIA-CLI-WILDFLY
+    Keystore provider: Custodia provider
+
+    Your keystore contains 2 entries
+
+    password, null, Unknown Entry Type
+    server-ssl, null, PrivateKeyEntry, 
+    Certificate fingerprint (SHA1): 51:6A:38:B7:5F:F3:C9:04:DF:A3:32:48:EC:A1:E0:FA:8A:7E:8F:01
+
+Note that the KeyStore type is now custodia-cli-wildfly, with the
+container name appended after "custodia-cli-".
+
+----------------------
+Extended configuration
+
+The configuration file can specify other options besides defining the
+container name.
+
+    name - the "subname" of the custodia-cli provider, appended after
+           "custodia-cli-".
+    container - the name of the container, also used as "subname" if name
+                option is not specified.
+    command - the command to call, "custodia-cli" by default.
+    alias | slot - to avoid listing all entries in the container, one
+                   specific alias name can be defined.
+    caching - if set to "true", list of aliases and already loaded entries
+              are cached in memory.
+
+-------------------------
+External command provider
+
+The io.github.latchset.custodia.provider.Custodia is actually based on
+more generic KeyStore provider io.github.latchset.custodia.provider.Command
+which does not have the command default defined. Besides the configuration
+options listed above and a need to specify the command value explicitly,
+
+    command-get - command line to get the secret on standard output
+    command-set - command line to set the secret, ${value} is used for
+                  the value
+    command-del - command line to delete entry
+    command-aliases - command line to get list of aliases on standard ouput
+
+have to be explicitly configured to define the options for the four
+operations. So the defaults defined by the Custodia CLI KeyStore provider
+are actually
+
+    command: custodia-cli
+    command-get: ${command} get ${container/}${alias}
+    command-set: ${command} set ${container/}${alias} ${value}
+    command-del: ${command} del ${container/}${alias}
+    command-aliases: ${command} ls ${container}
+
+The ${container/} with trailing slash will append the slash if the
+container name is specified, otherwise it will omit it.
+
+As an example, ext.config configuration file and simple test-cli script
+which emulates the storage in local directory are provided.
+
+--------
+Building
+
+When Bouncy Castle jars are in the default classpath, the provider can
+be compiled with
+
+    find -name '*.java' | xargs javac
+    find -name '*.class' | xargs jar -cf /etc/alternatives/jre/lib/ext/custodia-cli.jar
+
+----------
+References
+
+* Custodia: https://github.com/latchset/custodia
+* Java KeyStore:
+  https://docs.oracle.com/javase/8/docs/api/java/security/KeyStore.html
+* Java Cryptography Architecture:
+  https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/CryptoSpec.html
+* How to Implement a Provider in the Java Cryptography Architecture:
+  https://docs.oracle.com/javase/8/docs/technotes/guides/security/crypto/HowToImplAProvider.html

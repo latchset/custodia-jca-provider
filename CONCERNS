@@ -1,0 +1,103 @@
+======================================================
+Custodia CLI Java KeyStore provider potential concerns
+
+-----------------------
+The use of the CLI tool
+
+The reasons for using custodia-cli is its ability to access custodia
+daemon over Unix sockets and its authentication capabilities which
+would need to be reimplemented in Java.
+
+Since typical use of the KeyStore is to retrieve the certificate and
+private key once, upon application startup, execution of the extra
+process does not pose big performance issue.
+
+------------------------------------------------
+Configuration file referenced from java.security
+
+Initially, the plan was to use the configuration file (which defines
+for example container to use) as the keystore file, without the need for
+specifying it in java.security's provider list.
+
+However, KeyStore's API uses
+
+	store(OutputStream stream, char[] password)
+
+and for example keytool invokes this method whenever modification was
+done to the keystore, for example via -importkeystore, erasing the
+content of the configuration file when opening the file for writing.
+
+While using the configuration file as keystore file works, it can get
+unexpectedly erased. The store method implementation in the Custodia CLI
+provider (which currently does nothing as any modifications are done
+directly when) could be modified to store back the same content as seen
+during load. But it still carries risk of configuration getting lost.
+
+------------------------------
+JBoss/WildFly interoperability
+
+WildFly's
+
+	https://github.com/wildfly/wildfly-core/blob/master/domain-management/src/main/java/org/jboss/as/domain/management/security/FileKeystore.java
+
+has two modes of operation -- either alias is specified and then the
+KeyStore is treated as file (isKeyStore = true) which has to exist and
+it has to be able to list aliases, or the file is not required to exist
+(isKeyStore = false) but then alias cannot be specified (and if it is
+specified as alias attribute to keystore element, it is ignored).
+
+The configuration file can be specified as the keystore file, with the
+caveat described above:
+
+    <ssl>
+      <keystore provider="custodia-cli"
+        path="custodia-wildfly.config" relative-to="jboss.server.config.dir"
+        alias="server-ssl" keystore-password="thepassword" />
+    </ssl>
+
+where /etc/wildfly/standalone/custodia-wildfly.config contains for example
+
+    container: wildfly
+
+to use wildfly/server-ssl entry.
+
+Alternatively, the provider can be configured with the configuration
+file in java.security, and the WildFly configuration would then be
+
+    <ssl>
+      <keystore provider="custodia-cli-wildfly" keystore-password="thepassword" />
+    </ssl>
+
+but without being able to specify the alias.
+
+Since Custodia CLI provider is able to serve "fully qualified" entries,
+it would be best if alias="wildfly/server-ssl" could be specified, without
+any need of extra configuration file defining the container name. However,
+with
+
+    <ssl>
+      <keystore provider="custodia-cli" path="/dev/null" alias="wildfly/server-ssl" keystore-password="thepassword" />
+    </ssl>
+
+due to the extra check in WildFly's code, startup fails with
+
+Caused by: org.jboss.msc.service.StartException in anonymous service: WFLYDM0083: The KeyStore /dev/null does not contain any keys.
+	at org.jboss.as.domain.management.security.FileKeystore.assertContainsKey(FileKeystore.java:169)
+	at org.jboss.as.domain.management.security.FileKeystore.load(FileKeystore.java:120)
+	at org.jboss.as.domain.management.security.FileKeyManagerService.loadKeyStore(FileKeyManagerService.java:189)
+
+--------------------
+Use of Bouncy Castle
+
+The code uses Bouncy Castle for PEM parsing and private key encryption
+and decryption.
+
+-----------------------------------------
+Setting value with command line parameter
+
+To set the entry, custodia-cli set is invoked which expects the secret
+value as its third parameter. That exposes the secret in process listing.
+
+The issue is tracked as https://github.com/latchset/custodia/issues/130.
+Once it is resolved, the provider code will switch to passing the value
+via standard input of the command.

@@ -1,0 +1,24 @@
+#!/bin/bash
+
+TEST_CLI=${TEST_CLI:-.test-cli-data}
+mkdir -p "$TEST_CLI"
+
+case "$1" in
+        ls)
+                ( cd "$TEST_CLI" && ls "$2" )
+        ;;
+	get)
+		cat "$TEST_CLI/$2"
+	;;
+	set)
+		echo -n "$3" > "$TEST_CLI/$2"
+	;;
+	mkdir)
+		mkdir "$TEST_CLI/$2"
+	;;
+	*)
+		echo "Usage: $0 (ls | get | set | mkdir)" >&2
+	;;
+esac
+
+
