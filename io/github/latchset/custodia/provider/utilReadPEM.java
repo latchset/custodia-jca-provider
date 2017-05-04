@@ -28,6 +28,7 @@ import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.X509CertificateHolder;
 import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 import org.bouncycastle.openssl.PEMException;
+import org.bouncycastle.openssl.PEMKeyPair;
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.pkcs.PKCS8EncryptedPrivateKeyInfo;
 
@@ -47,6 +48,9 @@ public class utilReadPEM {
 			}
 			if (o == null) {
 				break;
+			}
+			if (o instanceof PEMKeyPair) {
+				o = ((PEMKeyPair)o).getPrivateKeyInfo();
 			}
 			if (o instanceof X509CertificateHolder) {
 				try {
