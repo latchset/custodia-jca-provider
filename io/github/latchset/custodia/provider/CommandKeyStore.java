@@ -30,6 +30,7 @@ import java.security.KeyStoreSpi;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.UnrecoverableKeyException;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -115,11 +116,16 @@ public class CommandKeyStore extends KeyStoreSpi {
 	}
 	String[] expandVariables(String[] input, String alias, String value) {
 		Pattern p = Pattern.compile("\\$\\{(.+?)(/?)\\}");
+		ArrayList<String> result = new ArrayList<String>();
 		for (int i = 0; i < input.length; i++) {
-			input[i] = expandVariables(p, input[i], alias, value);
-
+			if (input[i].equals("${command}")) {
+				// We treat command as space-separated list
+				result.addAll(Arrays.asList(config.get("command").split(" ")));
+			} else {
+				result.add(expandVariables(p, input[i], alias, value));
+			}
 		}
-		return input;
+		return result.toArray(new String[result.size()]);
 	}
 	String[] expandVariables(String[] input, String alias) {
 		return expandVariables(input, alias, null);
