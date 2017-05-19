@@ -66,7 +66,13 @@ public class CommandKeyStore extends KeyStoreSpi {
 				if (s.findInLine("(^|\\G)\\s*(name|container|command(|-get|-set|-del|-aliases)|caching):\\s*") != null) {
 					super.put(s.match().group(2), s.nextLine());
 				} else if (s.findInLine("(^|\\G)\\s*(slot|alias):\\s*") != null) {
-					super.put("alias", s.nextLine());
+					String alias = s.nextLine();
+					Pattern p = Pattern.compile("\\$\\{ENV:(.+?)\\}");
+					Matcher m = p.matcher(alias);
+					if (m.matches()) {
+						alias = System.getenv(m.group(1));
+					}
+					super.put("alias", alias);
 				} else {
 					String skip = s.nextLine();
 					// System.err.println("  skipping line " + skip);

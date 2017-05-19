@@ -110,6 +110,9 @@ container name.
     caching - if set to "true", list of aliases and already loaded entries
               are cached in memory.
 
+The alias | slot value can use ${ENV:variable} syntax for getting the
+name of the alias from environment variable.
+
 -------------------------
 External command provider
 
